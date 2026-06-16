@@ -1,108 +1,138 @@
 import streamlit as st
 from google import genai
+from google.genai import types
 
+# ---------------------------
 # 페이지 설정
+# ---------------------------
 st.set_page_config(
-    page_title="연애상담 챗봇",
-    page_icon="💖",
+    page_title="급식 메뉴 추천 챗봇",
+    page_icon="🍱",
+    layout="centered"
 )
 
-st.title("💖 연애상담 챗봇")
+st.title("🍱 급식 메뉴 추천 챗봇")
 st.caption("Gemini 2.5 Flash Lite 기반")
 
-# API Key 불러오기
+# ---------------------------
+# API 키 확인
+# ---------------------------
 try:
     api_key = st.secrets["GEMINI_API_KEY"]
 except Exception:
-    st.error("Secrets에 GEMINI_API_KEY를 설정해주세요.")
+    st.error(
+        "GEMINI_API_KEY가 설정되지 않았습니다. "
+        "Streamlit Secrets를 확인해주세요."
+    )
     st.stop()
 
-# Gemini 클라이언트
-client = genai.Client(api_key=api_key)
+# ---------------------------
+# Gemini Client 생성
+# ---------------------------
+try:
+    client = genai.Client(api_key=api_key)
+except Exception as e:
+    st.error(f"Gemini 클라이언트 생성 실패: {e}")
+    st.stop()
 
-# 채팅 기록 저장
+# ---------------------------
+# 채팅 기록 초기화
+# ---------------------------
 if "messages" not in st.session_state:
     st.session_state.messages = [
         {
             "role": "assistant",
             "content": (
-                "안녕하세요 😊\n"
-                "연애 고민, 썸, 이별, 재회, 고백 등 무엇이든 편하게 이야기해주세요."
-            ),
+                "안녕하세요! 🍱\n\n"
+                "학생 수, 예산, 선호 음식, 알레르기 정보 등을 알려주시면 "
+                "급식 메뉴를 추천해드릴게요."
+            )
         }
     ]
 
-# 이전 대화 출력
-for message in st.session_state.messages:
-    with st.chat_message(message["role"]):
-        st.markdown(message["content"])
+# ---------------------------
+# 기존 메시지 출력
+# ---------------------------
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
 
+# ---------------------------
 # 사용자 입력
-if prompt := st.chat_input("연애 고민을 입력하세요..."):
+# ---------------------------
+prompt = st.chat_input("예: 중학생 300명, 1인당 4500원, 한식 위주")
 
-    # 사용자 메시지 저장
+if prompt:
+
     st.session_state.messages.append(
-        {"role": "user", "content": prompt}
+        {
+            "role": "user",
+            "content": prompt
+        }
     )
 
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # AI 응답
-    with st.chat_message("assistant"):
-        try:
-            with st.spinner("생각 중..."):
+    try:
 
-                # 대화 기록 구성
-                history_text = ""
+        # 채팅 기록 문자열 생성
+        history_text = ""
 
-                for msg in st.session_state.messages:
-                    role = "사용자" if msg["role"] == "user" else "상담사"
-                    history_text += f"{role}: {msg['content']}\n"
+        for msg in st.session_state.messages:
+            role = "사용자" if msg["role"] == "user" else "챗봇"
+            history_text += f"{role}: {msg['content']}\n"
 
-                system_prompt = """
-당신은 따뜻하고 공감 능력이 뛰어난 연애 상담사입니다.
+        system_prompt = """
+당신은 학교 급식 영양사 및 급식 메뉴 전문 컨설턴트입니다.
 
 규칙:
-- 상대방을 비난하지 말 것
-- 현실적인 조언 제공
-- 공감 → 분석 → 조언 순서로 답변
-- 한국어로 답변
-- 너무 단정적으로 판단하지 말 것
+1. 급식 메뉴를 추천한다.
+2. 영양 균형을 고려한다.
+3. 국, 밥, 반찬, 후식 등을 포함할 수 있다.
+4. 학생들이 좋아할 만한 메뉴를 제안한다.
+5. 알레르기 관련 주의사항이 있으면 함께 알려준다.
+6. 답변은 한국어로 작성한다.
+7. 보기 좋게 마크다운 형식으로 작성한다.
 """
 
-                response = client.models.generate_content(
-                    model="gemini-2.5-flash-lite",
-                    contents=f"""
+        full_prompt = f"""
 {system_prompt}
 
-다음은 지금까지의 대화입니다.
-
+대화 기록:
 {history_text}
 
-상담사 답변:
+사용자 최신 요청:
+{prompt}
 """
-                )
 
-                answer = response.text
-
-                st.markdown(answer)
-
-                st.session_state.messages.append(
-                    {
-                        "role": "assistant",
-                        "content": answer,
-                    }
-                )
-
-        except Exception as e:
-            error_msg = f"오류가 발생했습니다.\n\n{str(e)}"
-
-            st.error(error_msg)
-
-            st.session_state.messages.append(
-                {
-                    "role": "assistant",
-                    "content": error_msg,
-                }
+        response = client.models.generate_content(
+            model="gemini-2.5-flash-lite",
+            contents=full_prompt,
+            config=types.GenerateContentConfig(
+                temperature=0.8,
+                max_output_tokens=1000
             )
+        )
+
+        answer = response.text
+
+    except Exception as e:
+        answer = f"""
+⚠️ 오류가 발생했습니다.
+
+오류 내용:
+`{str(e)}`
+
+잠시 후 다시 시도해주세요.
+"""
+
+    st.session_state.messages.append(
+        {
+            "role": "assistant",
+            "content": answer
+        }
+    )
+
+    with st.chat_message("assistant"):
+        st.markdown(answer)
